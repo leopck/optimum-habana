@@ -48,6 +48,7 @@ from .utils import (
     MODELS_TO_TEST_FOR_SEQ2SEQ,
     MODELS_TO_TEST_FOR_SEQUENCE_CLASSIFICATION,
     MODELS_TO_TEST_FOR_SPEECH_RECOGNITION,
+    MODELS_TO_TEST_FOR_TOKEN_CLASSIFICATION,
     MODELS_TO_TEST_MAPPING,
 )
 
@@ -200,6 +201,10 @@ _SCRIPT_TO_MODEL_MAPPING = {
         MODELS_TO_TEST_MAPPING,
         MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING,
         ["t5"],
+    "run_token_classification": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING,
+        MODEL_MAPPING,
+        MODELS_TO_TEST_FOR_TOKEN_CLASSIFICATION,
     ),
 }
 
@@ -261,6 +266,9 @@ class ExampleTestMeta(type):
             return True
         elif "CodeLlama" in model_name and IS_GAUDI2 and deepspeed:
             # CodeLlama is tested only on Gaudi2 and with DeepSpeed
+            return True
+        elif "lilt-roberta-en-base" in model_name and IS_GAUDI2 and deepspeed:
+            # lilt-roberta-en-base is tested only on Gaudi2 and on single-card, and with DeepSpeed
             return True
         elif model_name == "albert-xxlarge-v1":
             if (("RUN_ALBERT_XXL_1X" in os.environ) and strtobool(os.environ["RUN_ALBERT_XXL_1X"])) or multi_card:
@@ -875,6 +883,7 @@ class MultiCardCausalLanguageModelingPTuningExampleTester(
     DATASET_NAME = "ought/raft"
 
 
+<<<<<<< HEAD
 class MultiCardMultiTastPromptPeftExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_multitask_prompt_tuning", multi_card=True
 ):
@@ -885,6 +894,20 @@ class MultiCardPolyPeftExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="peft_poly_seq2seq_with_generate", multi_card=True
 ):
     TASK_NAME = "poly-tuning"
+=======
+class TokenClassificationExampleTester(
+    ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_token_classification"
+):
+    TASK_NAME = "token_classification"
+    DATASET_NAME = "nielsr/funsd-layoutlmv3"
+
+
+class DeepSpeedTokenClassificationExampleTester(
+    ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_token_classification", deepspeed=True
+):
+    TASK_NAME = "token_classification"
+    DATASET_NAME = "nielsr/funsd-layoutlmv3"
+>>>>>>> d3cc15cb (Initial Token Classification with Custom Graph module)
 
 
 class MultiCardCausalLanguageModelingLlamaAdapterExampleTester(
