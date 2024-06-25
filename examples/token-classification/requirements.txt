@@ -1,0 +1,6 @@
+datasets
+seqeval
+tensorboard
+evaluate
+numpy
+pytesseract
