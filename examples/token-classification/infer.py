@@ -1,10 +1,16 @@
+#!/usr/bin/env python
+# coding=utf-8
+
+import time
+import torch
+import logging
+from PIL import Image, ImageDraw, ImageFont
 from datasets import load_dataset
 from transformers import LiltForTokenClassification, LayoutLMv3FeatureExtractor, AutoTokenizer
-from PIL import Image, ImageDraw, ImageFont
-import torch
-from optimum.habana import GaudiConfig, GaudiTrainer, GaudiTrainingArguments
+from optimum.habana import GaudiConfig
 import habana_frameworks.torch.core as htcore
-import time
+
+logger = logging.getLogger(__name__)
 
 def set_device(device_type):
     if device_type == "cuda":
@@ -14,19 +20,6 @@ def set_device(device_type):
     else:
         device = torch.device("cpu")
     return device
-
-# Load the FUNSD dataset
-dataset_id = "nielsr/funsd-layoutlmv3"
-dataset = load_dataset(dataset_id)
-
-print(f"Train dataset size: {len(dataset['train'])}")
-print(f"Test dataset size: {len(dataset['test'])}")
-
-# Load the model from the specified checkpoint directory
-model = LiltForTokenClassification.from_pretrained("./results/checkpoint-2400")
-# Load feature extractor and tokenizer
-feature_extractor = LayoutLMv3FeatureExtractor(apply_ocr=True)
-tokenizer = AutoTokenizer.from_pretrained("./results")
 
 def unnormalize_box(bbox, width, height):
     return [
@@ -81,42 +74,35 @@ def run_inference(images, model, feature_extractor, tokenizer, device, output_im
     # Main inference loop with performance measurement
     for image in images:
         start_time = time.time()
-        
-        # Use feature extractor to handle OCR and get bounding boxes
+
         feature_extraction_start = time.time()
         feature_extraction = feature_extractor(images=image, return_tensors="pt")
         feature_extraction_end = time.time()
-        
+
         words = feature_extraction["words"][0]
         boxes = feature_extraction["boxes"][0]
-        
-        # Tokenize the words
+
         tokenization_start = time.time()
         encoding = tokenizer(text=words, boxes=boxes, return_tensors="pt", padding="max_length", truncation=True)
         tokenization_end = time.time()
-        
-        # Move tensors and model to the specified device
+
         encoding = {k: v.to(device) for k, v in encoding.items()}
         model.to(device)
-        
+
         if device.type == "hpu":
-            # Enable lazy mode for Habana
             htcore.mark_step()
-        
-        # Model inference
+
         inference_start = time.time()
         outputs = model(**encoding)
-        
+
         if device.type == "hpu":
-            # Enable lazy mode for Habana
             htcore.mark_step()
-        
+
         inference_end = time.time()
-        
+
         predictions = outputs.logits.argmax(-1).squeeze().tolist()
         labels = [model.config.id2label[prediction] for prediction in predictions]
 
-        # Ensure only unique bounding boxes and labels are used
         unique_boxes = []
         unique_labels = []
         for box, label in zip(encoding["bbox"][0], labels):
@@ -128,28 +114,40 @@ def run_inference(images, model, feature_extractor, tokenizer, device, output_im
             results.append(draw_boxes(image, unique_boxes, unique_labels))
         else:
             results.append(unique_labels)
-        
+
         end_time = time.time()
         total_inference_time += end_time - start_time
-        
-        print(f"Inference time for this image: {end_time - start_time:.2f} seconds")
-        print(f"  Feature extraction time: {feature_extraction_end - feature_extraction_start:.2f} seconds")
-        print(f"  Tokenization time: {tokenization_end - tokenization_start:.2f} seconds")
-        print(f"  Model inference time: {inference_end - inference_start:.2f} seconds")
-    
+
+        logger.info(f"Inference time for this image: {end_time - start_time:.2f} seconds")
+        logger.info(f"  Feature extraction time: {feature_extraction_end - feature_extraction_start:.2f} seconds")
+        logger.info(f"  Tokenization time: {tokenization_end - tokenization_start:.2f} seconds")
+        logger.info(f"  Model inference time: {inference_end - inference_start:.2f} seconds")
+
     avg_inference_time = total_inference_time / len(images)
-    print(f"Average inference time per image: {avg_inference_time:.2f} seconds")
-    
+    logger.info(f"Average inference time per image: {avg_inference_time:.2f} seconds")
+
     return results
 
-# Set the device type (options: "cuda", "cpu", "hpu")
-device_type = "hpu"  # Change this to "cpu" or "cuda" as needed
-device = set_device(device_type)
+def main():
+    device_type = "hpu"
+    device = set_device(device_type)
 
-# Test the inference function
-test_images = [dataset["test"][i]["image"].convert("RGB") for i in range(20)]
-result_images = run_inference(test_images, model, feature_extractor, tokenizer, device)
+    dataset_id = "nielsr/funsd-layoutlmv3"
+    dataset = load_dataset(dataset_id)
 
-# Save the resulting images
-for idx, result_image in enumerate(result_images):
-    result_image.save(f"result_image_{idx}.png")
+    logger.info(f"Train dataset size: {len(dataset['train'])}")
+    logger.info(f"Test dataset size: {len(dataset['test'])}")
+
+    model = LiltForTokenClassification.from_pretrained("./results/")
+    feature_extractor = LayoutLMv3FeatureExtractor(apply_ocr=True)
+    tokenizer = AutoTokenizer.from_pretrained("./results")
+
+    test_images = [dataset["test"][i]["image"].convert("RGB") for i in range(20)]
+    result_images = run_inference(test_images, model, feature_extractor, tokenizer, device)
+
+    for idx, result_image in enumerate(result_images):
+        result_image.save(f"result_image_{idx}.png")
+
+
+if __name__ == "__main__":
+    main()

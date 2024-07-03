@@ -1,11 +1,6 @@
-transformers
 datasets
 seqeval
 tensorboard
 evaluate
-accelerate
-
 numpy
 pytesseract
-optimum[habana]
-habana-frameworks
