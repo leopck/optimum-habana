@@ -1,0 +1,11 @@
+datasets
+seqeval
+tensorboard
+evaluate
+numpy
+pytesseract
+
+#nvidia only
+transformers
+optimum[nvidia]
+accelerate
