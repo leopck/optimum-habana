@@ -16,18 +16,30 @@ from transformers import (
     AutoTokenizer,
     LayoutLMv3FeatureExtractor,
     LayoutLMv3Processor,
+    TrainingArguments,
+    Trainer,
 )
-from optimum.habana import GaudiTrainer, GaudiTrainingArguments
+import json
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import logging as hf_logging, send_example_telemetry
+from transformers.utils import logging as hf_logging
 from transformers.utils.versions import require_version
 from transformers import LiltForTokenClassification
-import json
+
+
+# Check if HPU is available
+try:
+    from optimum.habana import GaudiTrainer, GaudiTrainingArguments
+    HPU_AVAILABLE = True
+except ImportError:
+    HPU_AVAILABLE = False
+
+# Check if CUDA is available
+import torch
+CUDA_AVAILABLE = torch.cuda.is_available()
 
 logger = logging.getLogger(__name__)
 
 require_version("datasets>=1.8.0", "To fix: pip install -r requirements.txt")
-
 
 @dataclass
 class ModelArguments:
@@ -44,13 +56,11 @@ class DataTrainingArguments:
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, GaudiTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, GaudiTrainingArguments if HPU_AVAILABLE else TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
-    send_example_telemetry("token-classification", model_args, data_args)
 
     hf_logging.set_verbosity_info()
     logger.setLevel(training_args.get_process_log_level())
@@ -60,6 +70,7 @@ def main():
     logger.info(f"Training Args: {training_args}")
     logger.info(f"Data Args: {data_args}")
     logger.info(f"Model Args: {model_args}")
+
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
@@ -132,13 +143,24 @@ def main():
                 all_labels.append(ner_labels[label_idx])
         return metric.compute(predictions=[all_predictions], references=[all_labels])
 
-    trainer = GaudiTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=proc_dataset["train"],
-        eval_dataset=proc_dataset["test"],
-        compute_metrics=compute_metrics,
-    )
+    if HPU_AVAILABLE:
+        trainer = GaudiTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=proc_dataset["train"],
+            eval_dataset=proc_dataset["test"],
+            compute_metrics=compute_metrics,
+        )
+    else:
+        device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
+        model.to(device)
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=proc_dataset["train"],
+            eval_dataset=proc_dataset["test"],
+            compute_metrics=compute_metrics,
+        )
 
     if training_args.do_train:
         logger.info("*** Training ***")

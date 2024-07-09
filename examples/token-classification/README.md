@@ -14,7 +14,7 @@ You can run from either the `run.sh` example provided or modify from your own
 
 Run from `run.sh`:
 ```bash
-./run.sh
+./train.sh
 ```
 
 or fine tune your own dataset:
