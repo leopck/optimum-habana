@@ -24,7 +24,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import logging as hf_logging
 from transformers.utils.versions import require_version
 from transformers import LiltForTokenClassification
-
+import torch
 
 # Check if HPU is available
 try:
@@ -34,12 +34,9 @@ except ImportError:
     HPU_AVAILABLE = False
 
 # Check if CUDA is available
-import torch
 CUDA_AVAILABLE = torch.cuda.is_available()
 
 logger = logging.getLogger(__name__)
-
-require_version("datasets>=1.8.0", "To fix: pip install -r requirements.txt")
 
 @dataclass
 class ModelArguments:
@@ -154,6 +151,23 @@ def main():
     else:
         device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
         model.to(device)
+        training_args = TrainingArguments(
+            output_dir=training_args.output_dir,
+            evaluation_strategy=training_args.evaluation_strategy,
+            per_device_train_batch_size=training_args.per_device_train_batch_size,
+            per_device_eval_batch_size=training_args.per_device_eval_batch_size,
+            learning_rate=training_args.learning_rate,
+            max_steps=training_args.max_steps,
+            logging_steps=training_args.logging_steps,
+            save_steps=training_args.save_steps,
+            save_total_limit=training_args.save_total_limit,
+            load_best_model_at_end=training_args.load_best_model_at_end,
+            metric_for_best_model=training_args.metric_for_best_model,
+            gradient_checkpointing=training_args.gradient_checkpointing,
+            dataloader_num_workers=training_args.dataloader_num_workers,
+            fp16=training_args.fp16 if CUDA_AVAILABLE else False,
+            bf16=training_args.bf16 if CUDA_AVAILABLE else False,
+        )
         trainer = Trainer(
             model=model,
             args=training_args,
