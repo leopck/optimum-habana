@@ -1,4 +1,4 @@
-export PYTHON=/usr/bin/python3.10
+export PYTHON=/opt/conda/bin/python3.10
 rm -rf results
 $PYTHON train.py \
   --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \

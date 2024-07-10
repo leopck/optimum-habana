@@ -7,8 +7,6 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 from datasets import load_dataset
 from transformers import LiltForTokenClassification, LayoutLMv3FeatureExtractor, AutoTokenizer
-from optimum.habana import GaudiConfig
-import habana_frameworks.torch.core as htcore
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +14,8 @@ def set_device(device_type):
     if device_type == "cuda":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     elif device_type == "hpu":
+        from optimum.habana import GaudiConfig
+        import habana_frameworks.torch.core as htcore
         device = torch.device("hpu")
     else:
         device = torch.device("cpu")
@@ -129,7 +129,7 @@ def run_inference(images, model, feature_extractor, tokenizer, device, output_im
     return results
 
 def main():
-    device_type = "hpu"
+    device_type = "cuda"
     device = set_device(device_type)
 
     dataset_id = "nielsr/funsd-layoutlmv3"

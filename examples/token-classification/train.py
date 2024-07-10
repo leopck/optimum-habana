@@ -18,13 +18,19 @@ from transformers import (
     LayoutLMv3Processor,
     TrainingArguments,
     Trainer,
+    default_data_collator,
 )
 import json
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import logging as hf_logging
-from transformers.utils.versions import require_version
 from transformers import LiltForTokenClassification
 import torch
+from torch.utils.data import DataLoader
+from torch.profiler import profile, record_function, ProfilerActivity
+from torch.cuda.amp import GradScaler
+from transformers.trainer_utils import TrainOutput
+
+logger = logging.getLogger(__name__)
 
 # Check if HPU is available
 try:
@@ -34,9 +40,11 @@ except ImportError:
     HPU_AVAILABLE = False
 
 # Check if CUDA is available
-CUDA_AVAILABLE = torch.cuda.is_available()
-
-logger = logging.getLogger(__name__)
+try:
+    from torch.cuda.amp import autocast
+    CUDA_AVAILABLE = torch.cuda.is_available()
+except ImportError:
+    CUDA_AVAILABLE = False
 
 @dataclass
 class ModelArguments:
@@ -52,7 +60,54 @@ class DataTrainingArguments:
     max_predict_samples: Optional[int] = field(default=None, metadata={"help": "For debugging purposes or quicker training, truncate the number of prediction examples to this value if set."})
 
 
+class CustomTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if CUDA_AVAILABLE:
+            self.scaler = GradScaler()
+
+    def training_step(self, model, inputs):
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+        inputs = {k: v.to(self.args.device) for k, v in inputs.items()}  # Ensure inputs are on GPU
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            loss = self.compute_loss(model, inputs)
+        loss = loss.mean()  # Ensure loss is a scalar
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad()
+        return loss.detach()
+
+    def train(self, resume_from_checkpoint=None, **kwargs):
+        train_dataloader = self.get_train_dataloader()  # Get the DataLoader
+        total_loss = 0
+        num_steps = 0
+
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(
+                wait=1,
+                warmup=1,
+                active=3),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        ) as prof:
+            super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
+            for step, inputs in enumerate(train_dataloader):
+                loss = self.training_step(self.model, inputs)
+                total_loss += loss.item()
+                num_steps += 1
+                prof.step()
+
+        avg_loss = total_loss / num_steps
+        metrics = {"train_loss": avg_loss}
+        return TrainOutput(global_step=num_steps, training_loss=avg_loss, metrics=metrics)
+
 def main():
+    device = "cuda"
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, GaudiTrainingArguments if HPU_AVAILABLE else TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
@@ -121,7 +176,7 @@ def main():
 
     model = LiltForTokenClassification.from_pretrained(
         model_id, num_labels=len(labels), label2id=label2id, id2label=id2label
-    )
+    ).to(training_args.device)
 
     metric = evaluate.load("seqeval")
     ner_labels = list(model.config.id2label.values())
@@ -149,31 +204,13 @@ def main():
             compute_metrics=compute_metrics,
         )
     else:
-        device = torch.device("cuda" if CUDA_AVAILABLE else "cpu")
-        model.to(device)
-        training_args = TrainingArguments(
-            output_dir=training_args.output_dir,
-            evaluation_strategy=training_args.evaluation_strategy,
-            per_device_train_batch_size=training_args.per_device_train_batch_size,
-            per_device_eval_batch_size=training_args.per_device_eval_batch_size,
-            learning_rate=training_args.learning_rate,
-            max_steps=training_args.max_steps,
-            logging_steps=training_args.logging_steps,
-            save_steps=training_args.save_steps,
-            save_total_limit=training_args.save_total_limit,
-            load_best_model_at_end=training_args.load_best_model_at_end,
-            metric_for_best_model=training_args.metric_for_best_model,
-            gradient_checkpointing=training_args.gradient_checkpointing,
-            dataloader_num_workers=training_args.dataloader_num_workers,
-            fp16=training_args.fp16 if CUDA_AVAILABLE else False,
-            bf16=training_args.bf16 if CUDA_AVAILABLE else False,
-        )
-        trainer = Trainer(
+        trainer = CustomTrainer(
             model=model,
             args=training_args,
             train_dataset=proc_dataset["train"],
             eval_dataset=proc_dataset["test"],
             compute_metrics=compute_metrics,
+            data_collator=default_data_collator,
         )
 
     if training_args.do_train:
@@ -183,6 +220,7 @@ def main():
             checkpoint = training_args.resume_from_checkpoint
         elif last_checkpoint is not None:
             checkpoint = last_checkpoint
+
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()
         processor.save_pretrained(training_args.output_dir)
