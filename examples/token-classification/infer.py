@@ -29,16 +29,15 @@ def unnormalize_box(bbox, width, height):
         height * (bbox[3] / 1000),
     ]
 
-label2color = {
-    "B-HEADER": "blue",
-    "B-QUESTION": "red",
-    "B-ANSWER": "green",
-    "I-HEADER": "blue",
-    "I-QUESTION": "red",
-    "I-ANSWER": "green",
-}
-
 def draw_boxes(image, boxes, predictions):
+    label2color = {
+        "B-HEADER": "blue",
+        "B-QUESTION": "red",
+        "B-ANSWER": "green",
+        "I-HEADER": "blue",
+        "I-QUESTION": "red",
+        "I-ANSWER": "green",
+    }
     width, height = image.size
     normalized_boxes = [unnormalize_box(box, width, height) for box in boxes]
 
