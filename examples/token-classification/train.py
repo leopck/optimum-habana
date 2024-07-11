@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.cuda.amp import GradScaler
 from transformers.trainer_utils import TrainOutput
+from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,10 @@ class DataTrainingArguments:
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if CUDA_AVAILABLE:
-            self.scaler = GradScaler()
+        self.writer = SummaryWriter(log_dir="./logs")
+        self.scaler = GradScaler() if CUDA_AVAILABLE else None
+        self.total_train_time = 0
+        self.total_samples = 0
 
     def training_step(self, model, inputs):
         model.train()
@@ -83,14 +86,17 @@ class CustomTrainer(Trainer):
         train_dataloader = self.get_train_dataloader()  # Get the DataLoader
         total_loss = 0
         num_steps = 0
-
+        start_time = torch.cuda.Event(enable_timing=True)
+        end_time = torch.cuda.Event(enable_timing=True)
+        
+        start_time.record()
         with profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
             schedule=torch.profiler.schedule(
                 wait=1,
                 warmup=1,
                 active=3),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs/profiler'),
             record_shapes=True,
             profile_memory=True,
             with_stack=True
@@ -100,14 +106,28 @@ class CustomTrainer(Trainer):
                 loss = self.training_step(self.model, inputs)
                 total_loss += loss.item()
                 num_steps += 1
+                self.total_samples += inputs[list(inputs.keys())[0]].shape[0]  # Batch size
                 prof.step()
 
+                if step % self.args.logging_steps == 0:
+                    self.writer.add_scalar('train_loss', loss.item(), step)
+                    self.writer.add_scalar('learning_rate', self.optimizer.param_groups[0]['lr'], step)
+        
+        end_time.record()
+        torch.cuda.synchronize()
+        self.total_train_time = start_time.elapsed_time(end_time) / 1000  # Convert to seconds
+
         avg_loss = total_loss / num_steps
-        metrics = {"train_loss": avg_loss}
+        tpt = self.total_samples / self.total_train_time  # Throughput: samples/sec
+        metrics = {"train_loss": avg_loss, "TPT": tpt, "TT": self.total_train_time}
+        
+        logger.info(f"Training Loss: {avg_loss}")
+        logger.info(f"Throughput (TPT): {tpt} samples/sec")
+        logger.info(f"Total Training Time (TT): {self.total_train_time} seconds")
+
         return TrainOutput(global_step=num_steps, training_loss=avg_loss, metrics=metrics)
 
 def main():
-    device = "cuda"
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, GaudiTrainingArguments if HPU_AVAILABLE else TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
@@ -246,3 +266,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

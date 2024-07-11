@@ -7,8 +7,10 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 from datasets import load_dataset
 from transformers import LiltForTokenClassification, LayoutLMv3FeatureExtractor, AutoTokenizer
+from torch.profiler import profile, record_function, ProfilerActivity
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def set_device(device_type):
     if device_type == "cuda":
@@ -55,6 +57,9 @@ def draw_boxes(image, boxes, predictions):
 def run_inference(images, model, feature_extractor, tokenizer, device, output_image=True, warm_up_steps=5):
     results = []
     total_inference_time = 0
+    total_feature_extraction_time = 0
+    total_tokenization_time = 0
+    total_model_inference_time = 0
 
     # Warm-up phase
     for _ in range(warm_up_steps):
@@ -65,66 +70,78 @@ def run_inference(images, model, feature_extractor, tokenizer, device, output_im
         encoding = tokenizer(text=words, boxes=boxes, return_tensors="pt", padding="max_length", truncation=True)
         encoding = {k: v.to(device) for k, v in encoding.items()}
         model.to(device)
-        if device.type == "hpu":
-            htcore.mark_step()
         outputs = model(**encoding)
-        if device.type == "hpu":
-            htcore.mark_step()
 
     # Main inference loop with performance measurement
-    for image in images:
-        start_time = time.time()
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('./logs/profiler_inference'),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True
+    ) as prof:
+        for image in images:
+            start_time = time.time()
 
-        feature_extraction_start = time.time()
-        feature_extraction = feature_extractor(images=image, return_tensors="pt")
-        feature_extraction_end = time.time()
+            feature_extraction_start = time.time()
+            feature_extraction = feature_extractor(images=image, return_tensors="pt")
+            feature_extraction_end = time.time()
 
-        words = feature_extraction["words"][0]
-        boxes = feature_extraction["boxes"][0]
+            words = feature_extraction["words"][0]
+            boxes = feature_extraction["boxes"][0]
 
-        tokenization_start = time.time()
-        encoding = tokenizer(text=words, boxes=boxes, return_tensors="pt", padding="max_length", truncation=True)
-        tokenization_end = time.time()
+            tokenization_start = time.time()
+            encoding = tokenizer(text=words, boxes=boxes, return_tensors="pt", padding="max_length", truncation=True)
+            tokenization_end = time.time()
 
-        encoding = {k: v.to(device) for k, v in encoding.items()}
-        model.to(device)
+            encoding = {k: v.to(device) for k, v in encoding.items()}
+            model.to(device)
 
-        if device.type == "hpu":
-            htcore.mark_step()
+            inference_start = time.time()
+            outputs = model(**encoding)
+            inference_end = time.time()
 
-        inference_start = time.time()
-        outputs = model(**encoding)
+            predictions = outputs.logits.argmax(-1).squeeze().tolist()
+            labels = [model.config.id2label[prediction] for prediction in predictions]
 
-        if device.type == "hpu":
-            htcore.mark_step()
+            unique_boxes = []
+            unique_labels = []
+            for box, label in zip(encoding["bbox"][0], labels):
+                if box.tolist() not in unique_boxes:
+                    unique_boxes.append(box.tolist())
+                    unique_labels.append(label)
 
-        inference_end = time.time()
+            if output_image:
+                results.append(draw_boxes(image, unique_boxes, unique_labels))
+            else:
+                results.append(unique_labels)
 
-        predictions = outputs.logits.argmax(-1).squeeze().tolist()
-        labels = [model.config.id2label[prediction] for prediction in predictions]
+            end_time = time.time()
+            total_inference_time += end_time - start_time
+            total_feature_extraction_time += feature_extraction_end - feature_extraction_start
+            total_tokenization_time += tokenization_end - tokenization_start
+            total_model_inference_time += inference_end - inference_start
 
-        unique_boxes = []
-        unique_labels = []
-        for box, label in zip(encoding["bbox"][0], labels):
-            if box.tolist() not in unique_boxes:
-                unique_boxes.append(box.tolist())
-                unique_labels.append(label)
+            prof.step()
 
-        if output_image:
-            results.append(draw_boxes(image, unique_boxes, unique_labels))
-        else:
-            results.append(unique_labels)
-
-        end_time = time.time()
-        total_inference_time += end_time - start_time
-
-        logger.info(f"Inference time for this image: {end_time - start_time:.2f} seconds")
-        logger.info(f"  Feature extraction time: {feature_extraction_end - feature_extraction_start:.2f} seconds")
-        logger.info(f"  Tokenization time: {tokenization_end - tokenization_start:.2f} seconds")
-        logger.info(f"  Model inference time: {inference_end - inference_start:.2f} seconds")
+            logger.info(f"Inference time for this image: {end_time - start_time:.2f} seconds")
+            logger.info(f"  Feature extraction time: {feature_extraction_end - feature_extraction_start:.2f} seconds")
+            logger.info(f"  Tokenization time: {tokenization_end - tokenization_start:.2f} seconds")
+            logger.info(f"  Model inference time: {inference_end - inference_start:.2f} seconds")
 
     avg_inference_time = total_inference_time / len(images)
+    avg_feature_extraction_time = total_feature_extraction_time / len(images)
+    avg_tokenization_time = total_tokenization_time / len(images)
+    avg_model_inference_time = total_model_inference_time / len(images)
+
+    # Log the overall metrics at the end of inference
+    logger.info("==== Overall Inference Metrics ====")
+    logger.info(f"Total inference time: {total_inference_time:.2f} seconds")
     logger.info(f"Average inference time per image: {avg_inference_time:.2f} seconds")
+    logger.info(f"Average feature extraction time per image: {avg_feature_extraction_time:.2f} seconds")
+    logger.info(f"Average tokenization time per image: {avg_tokenization_time:.2f} seconds")
+    logger.info(f"Average model inference time per image: {avg_model_inference_time:.2f} seconds")
 
     return results
 
