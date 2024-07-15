@@ -47,7 +47,7 @@ python infer.py
 ## Multi-device using DeepSpeed
 
 ```
-python train.py \
+python run_token_classification.py \
   --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \
   --gaudi_config_name Habana/roberta-base \
   --dataset_name nielsr/funsd-layoutlmv3 \

@@ -238,6 +238,9 @@ class ExampleTestMeta(type):
         elif "CodeLlama" in model_name and IS_GAUDI2 and deepspeed:
             # CodeLlama is tested only on Gaudi2 and with DeepSpeed
             return True
+        elif "lilt-roberta-en-base" in model_name and IS_GAUDI2 and deepspeed:
+            # lilt-roberta-en-base is tested only on Gaudi2 and on single-card, and with DeepSpeed 
+            return True
         elif model_name == "albert-xxlarge-v1":
             if (("RUN_ALBERT_XXL_1X" in os.environ) and strtobool(os.environ["RUN_ALBERT_XXL_1X"])) or multi_card:
                 # ALBERT XXL 1X is tested only if the required flag is present because it takes long
@@ -794,6 +797,12 @@ class MultiCardCausalLanguageModelingPTuningExampleTester(
 
 class TokenClassificationExampleTester(
     ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_token_classification"
+):
+    TASK_NAME = "token_classification"
+    DATASET_NAME= "nielsr/funsd-layoutlmv3"
+
+class DeepSpeedTokenClassificationExampleTester(
+    ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_token_classification", deepspeed=True
 ):
     TASK_NAME = "token_classification"
     DATASET_NAME= "nielsr/funsd-layoutlmv3"
