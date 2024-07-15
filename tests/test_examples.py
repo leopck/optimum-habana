@@ -48,6 +48,7 @@ from .utils import (
     MODELS_TO_TEST_FOR_SEQ2SEQ,
     MODELS_TO_TEST_FOR_SEQUENCE_CLASSIFICATION,
     MODELS_TO_TEST_FOR_SPEECH_RECOGNITION,
+    MODELS_TO_TEST_FOR_TOKEN_CLASSIFICATION,
     MODELS_TO_TEST_MAPPING,
 )
 
@@ -181,6 +182,12 @@ _SCRIPT_TO_MODEL_MAPPING = {
         MODEL_MAPPING,
         ["protst"],
     ),
+    "run_token_classification": _get_supported_models_for_script(
+        MODELS_TO_TEST_MAPPING,
+        MODEL_MAPPING,
+        MODELS_TO_TEST_FOR_TOKEN_CLASSIFICATION,
+    ),
+    
 }
 
 
@@ -784,3 +791,9 @@ class MultiCardCausalLanguageModelingPTuningExampleTester(
 ):
     TASK_NAME = ["p-tuning"]
     DATASET_NAME = "ought/raft"
+
+class TokenClassificationExampleTester(
+    ExampleTesterBase, metaclass=ExampleTestMeta, example_name="run_token_classification"
+):
+    TASK_NAME = "token_classification"
+    DATASET_NAME= "nielsr/funsd-layoutlmv3"

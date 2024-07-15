@@ -11,7 +11,7 @@ pip install -r requirements.txt
 
 fine tune your own dataset:
 ```bash
-python train.py \
+python run_token_classification.py \
   --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \
   --gaudi_config_name Habana/roberta-base \
   --dataset_name nielsr/funsd-layoutlmv3 \
@@ -32,7 +32,7 @@ python train.py \
   --load_best_model_at_end \
   --metric_for_best_model overall_f1 \
   --gradient_checkpointing \
-  --use_hpu_graphs \
+  --use_hpu_graphs_for_inference \
   --dataloader_num_workers 4 \
   --non_blocking_data_copy
 ```
