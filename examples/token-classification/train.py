@@ -23,6 +23,8 @@ from transformers.utils import logging as hf_logging, send_example_telemetry
 from transformers import LiltForTokenClassification
 import json
 
+import deepspeed
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -126,7 +128,20 @@ def main():
                     continue
                 all_predictions.append(ner_labels[predicted_idx])
                 all_labels.append(ner_labels[label_idx])
-        return metric.compute(predictions=[all_predictions], references=[all_labels])
+        
+        # Use zero_division parameter to handle divisions by zero
+        metrics = metric.compute(predictions=[all_predictions], references=[all_labels], zero_division=0)
+        
+        # Flatten the nested dictionary
+        flat_metrics = {}
+        for key, value in metrics.items():
+            if isinstance(value, dict):
+                for sub_key, sub_value in value.items():
+                    flat_metrics[f"{key}_{sub_key}"] = sub_value
+            else:
+                flat_metrics[key] = value
+        
+        return flat_metrics
 
     trainer = GaudiTrainer(
         model=model,
@@ -158,11 +173,14 @@ def main():
         metrics = trainer.evaluate()
         max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(proc_dataset["test"])
         metrics["eval_samples"] = min(max_eval_samples, len(proc_dataset["test"]))
+
         for key, value in metrics.items():
             if isinstance(value, dict):
-                logger.info(f"{key}: {json.dumps(value, indent=2)}")
+                for sub_key, sub_value in value.items():
+                    logger.info(f"{key}_{sub_key}: {sub_value}")
             else:
                 logger.info(f"{key}: {value}")
+
         trainer.save_metrics("eval", metrics)
 
 
