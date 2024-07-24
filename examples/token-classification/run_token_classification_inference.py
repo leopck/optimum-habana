@@ -70,7 +70,7 @@ def run_inference(
     warm_up_batch = images[:batch_size] * (warm_up_steps // batch_size + 1)
     for i in range(0, warm_up_steps, batch_size):
         batch = warm_up_batch[i:i+batch_size]
-        feature_extraction = feature_extractor(images=batch, return_tensors="pt", padding=True, truncation=True)
+        feature_extraction = feature_extractor(images=batch, return_tensors="pt")
         encoding = tokenizer(text=feature_extraction["words"], boxes=feature_extraction["boxes"], return_tensors="pt", padding="max_length", truncation=True)
         encoding = {k: v.to(device) for k, v in encoding.items()}
         model.to(device)
@@ -86,7 +86,7 @@ def run_inference(
         start_time = time.time()
 
         feature_extraction_start = time.time()
-        feature_extraction = feature_extractor(images=batch, return_tensors="pt", padding=True, truncation=True)
+        feature_extraction = feature_extractor(images=batch, return_tensors="pt")
         feature_extraction_end = time.time()
 
         tokenization_start = time.time()
