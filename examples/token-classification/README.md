@@ -18,6 +18,7 @@ limitations under the License.
 
 `run_token_classification.py` is a lightweight example of how to download and preprocess a dataset from the [🤗 Datasets](https://github.com/huggingface/datasets) library or use your own files (jsonlines or csv), then fine-tune `lilt-roberta-en-base`.
 
+**Note: The `--use_mpi` option is not supported at this time.**
 
 # Single-card Training
 
@@ -33,29 +34,31 @@ pip install -r requirements.txt
 
 ```bash
 python run_token_classification.py \
-  --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \
-  --gaudi_config_name Habana/roberta-base \
-  --dataset_name nielsr/funsd-layoutlmv3 \
-  --do_train \
-  --do_eval \
-  --per_device_train_batch_size 16 \
-  --per_device_eval_batch_size 16 \
-  --learning_rate 5e-5 \
-  --output_dir ./results \
-  --use_habana \
-  --bf16 \
-  --logging_strategy epoch \
-  --evaluation_strategy epoch \
-  --num_train_epochs 10 \
-  --save_strategy epoch \
-  --save_total_limit 2 \
-  --load_best_model_at_end \
-  --metric_for_best_model overall_f1 \
-  --dataloader_num_workers 4 \
-  --non_blocking_data_copy \
-  --gradient_checkpointing \
-  --use_hpu_graphs \
-  --use_lazy_mode
+ --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \
+ --gaudi_config_name Habana/roberta-base \
+ --dataset_name nielsr/funsd-layoutlmv3 \
+ --do_train \
+ --do_eval \
+ --per_device_train_batch_size 128 \
+ --per_device_eval_batch_size 128 \
+ --learning_rate 5e-5 \
+ --output_dir ./results \
+ --use_habana \
+ --bf16 \
+ --logging_strategy epoch \
+ --num_train_epochs 60 \
+ --evaluation_strategy steps \
+ --save_strategy steps \
+  --save_steps 200 \
+  --logging_steps 10 \
+ --save_total_limit 2 \
+ --load_best_model_at_end \
+ --metric_for_best_model overall_f1 \
+ --dataloader_num_workers 4 \
+ --non_blocking_data_copy \
+ --use_hpu_graphs_for_training \
+ --pipelining_fwd_bwd True \
+ --use_lazy_mode 
 ```
 
 ## Multi-card using DeepSpeed
@@ -115,7 +118,5 @@ python run_token_classification_inference.py \
   --dataset_id "nielsr/funsd-layoutlmv3" \
   --model_path "./results/" \
   --num_images 10 \
-  --batch_size 4 \
-  --precision bf16 \
-  --use_hpu_graphs
+  --batch_size 4
 ```
