@@ -29,12 +29,12 @@ except Exception as error:
 
 
 INSTALL_REQUIRES = [
-    "transformers >= 4.40.0, < 4.41.0",
+    "transformers == 4.43.2",
     "optimum",
     "torch",
-    "accelerate < 0.28.0",
+    "accelerate == 0.32.0",
     "diffusers >= 0.26.0, < 0.27.0",
-    "huggingface_hub < 0.23.0",
+    "huggingface_hub >=0.23.2",
 ]
 
 TESTS_REQUIRE = [

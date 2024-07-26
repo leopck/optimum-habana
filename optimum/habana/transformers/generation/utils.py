@@ -758,6 +758,11 @@ class GaudiGenerationMixin(GenerationMixin):
                     - [`transformers.generation.GenerateEncoderDecoderOutput`],
                     - [`transformers.generation.GenerateBeamEncoderDecoderOutput`]
         """
+        if not hasattr(generation_config, '_pad_token_tensor'):
+            generation_config._pad_token_tensor = generation_config.pad_token_id
+        if not hasattr(generation_config, '_eos_token_tensor'):
+            generation_config._eos_token_tensor = generation_config.eos_token_id
+
         if iteration_times is not None:
             hb_gen_time = HabanaGenerationtime(iteration_times=iteration_times)
             hb_gen_time.start()
@@ -2071,6 +2076,34 @@ class GaudiGenerationMixin(GenerationMixin):
         >>> tokenizer.batch_decode(outputs, skip_special_tokens=True)
         ['Today is a beautiful day, and we must do everything possible to make it a day of celebration.']
         ```"""
+        import pdb; pdb.set_trace()
+        new_generation_config = model_kwargs.pop("generation_config", None)
+        if new_generation_config is not None:
+            if not new_generation_config.do_sample:
+                pad_token_id = new_generation_config._pad_token_tensor
+                eos_token_id = new_generation_config._eos_token_tensor
+                return self._greedy_search(
+                    input_ids,
+                    logits_processor,
+                    stopping_criteria,
+                    max_length,
+                    pad_token_id,
+                    eos_token_id,
+                    output_attentions,
+                    output_hidden_states,
+                    output_scores,
+                    return_dict_in_generate,
+                    synced_gpus,
+                    streamer,
+                    **model_kwargs,
+                )
+        else:
+            pad_token_id = (
+                pad_token_id if pad_token_id is not None else self.generation_config.pad_token_id
+            )
+            eos_token_id = (
+                eos_token_id if eos_token_id is not None else self.generation_config.eos_token_id
+            )
 
         # init values
         logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
