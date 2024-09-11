@@ -71,6 +71,7 @@ python ../gaudi_spawn.py \
     --use_deepspeed run_token_classification.py \
     --model_name_or_path SCUT-DLVCLab/lilt-roberta-en-base \
     --gaudi_config Habana/roberta-base  \
+    --dataset_name nielsr/funsd-layoutlmv3 \
     --do_train  \
     --do_eval \
     --per_device_train_batch_size 32 \
@@ -81,6 +82,7 @@ python ../gaudi_spawn.py \
     --overwrite_output_dir \
     --use_habana \
     --use_lazy_mode \
+    --use_hpu_graphs_for_training \
     --use_hpu_graphs_for_inference \
     --throughput_warmup_steps 3  \
     --deepspeed path-to-deepspeed-config
